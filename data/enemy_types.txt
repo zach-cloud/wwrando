@@ -168,7 +168,7 @@
   Allow near pits: False # Dies instantly when over a pit, and doesn't set its death switch when it does that. TODO: see if that can be fixed so they set their death switch when falling in a pit.
   Can be killed with thrown objects: Yes # TODO CHECK
   Can be killed with bomb flowers: Yes
-  Difficulty: Easy
+  Difficulty: Medium
 -
   Pretty name: Peahat
   Actor name: p_hat
