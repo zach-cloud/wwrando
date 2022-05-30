@@ -12,21 +12,6 @@ from logic.logic import Logic
 # Set it to the name of a specific enemy type and it will handle putting that enemy type in every single enemy location throughout the game - ignoring memory and logic limits.
 DEBUG_ENEMY_NAME_TO_PLACE_EVERYWHERE = None
 
-# This variable is for removing all randomizable enemies from the game.
-# This helps with figuring out how much free memory each room has, not counting memory used by the enemies themselves.
-DEBUG_REMOVE_ALL_ENEMIES = False
-DEBUG_REMOVAL_EXCLUDED_PATHS = [
-  "sea/Room49.arc/Actor029",
-  "sea/Room6.arc/Actor024",
-  "sea/Room6.arc/Actor025",
-  "sea/Room6.arc/Actor029",
-  "sea/Room6.arc/Actor02B",
-  "MiniKaz/Room0.arc/Actor001",
-  "M_NewD2/Room2.arc/Actor022",
-]
-
-DEBUG_PRINT_FREE_MEMORY_ESTIMATES = False
-
 # Limit the number of species that appear in a given stage to prevent issues loading too many particles and to prevent stages from feeling too chaotic.
 # (This limit does not apply to the sea.)
 MAX_ENEMY_SPECIES_PER_STAGE = 10
@@ -119,9 +104,6 @@ def randomize_enemies(self):
   # Now that all randomized enemy locations have been decided successfully, actually save the changed enemies.
   save_changed_enemies_and_randomize_their_params(self)
   
-  if DEBUG_REMOVE_ALL_ENEMIES and not DEBUG_REMOVAL_EXCLUDED_PATHS:
-    return
-  
   add_modify_and_replace_actors_for_enemy_rando(self)
   
   randomize_enemies_spawned_by_objects(self)
@@ -208,6 +190,7 @@ def randomize_enemy_groups_for_stage(self, stage_folder, enemy_locations):
   enemy_pool_for_stage = decide_on_enemy_pool_for_stage(self, stage_folder, enemy_locations)
   for enemy_group in enemy_locations:
     room_attempts = 0
+    room_failures = 0
     max_room_attempts = MAX_RANDOMIZATION_REDOS_PER_ROOM
     if stage_folder == "sea":
       max_room_attempts *= 5 # Give sea rooms more attempts to compensate for the lack of stage attempts.
@@ -233,9 +216,9 @@ def randomize_enemy_group(self, stage_folder, enemy_group, enemy_pool_for_stage)
     # In stages where there can be two rooms loaded at once, consider the real amount of free space half of the documented amount.
     # This probably isn't a very accurate way to emulate this, but it will have to do since we don't know how much memory enemies in the rooms connected to this room take up, since the other rooms may not be randomized yet.
     free_memory = free_memory / 2
-  if DEBUG_PRINT_FREE_MEMORY_ESTIMATES:
+  if False:
     print("/".join(enemy_group["Enemies"][0]["Path"].split("/")[0:-1]))
-    print("  Initial free memory: %d" % free_memory)
+    print("Initial free memory: %d" % free_memory)
   
   if enemy_group["Must defeat enemies"]:
     original_req_string = enemy_group["Original requirements"]
@@ -247,15 +230,38 @@ def randomize_enemy_group(self, stage_folder, enemy_group, enemy_pool_for_stage)
     )
   else:
     enemies_logically_allowed_in_this_group = self.enemies_to_randomize_to
-  
+
+  # Apply difficulty logic here TODO
+  original_difficulty = enemy_group["Difficulty"]
+  mode = "Easy" # TODO
+  if mode == "Easy":
+    if original_difficulty == "Easy":
+      possible_difficulties = ["Easy"]
+    elif original_difficulty == "Medium":
+      possible_difficulties = ["Easy", "Easy", "Easy", "Medium", "Medium"]
+    elif original_difficulty == "Hard":
+      possible_difficulties = ["Easy", "Hard", "Medium", "Medium"]
+  elif mode == "Medium":
+    if original_difficulty == "Easy":
+      possible_difficulties = ["Easy", "Medium"]
+    elif original_difficulty == "Medium":
+      possible_difficulties = ["Easy", "Medium", "Hard"]
+    elif original_difficulty == "Hard":
+      possible_difficulties = ["Hard", "Medium"]
+  elif mode == "Hard":
+    if original_difficulty == "Easy":
+      possible_difficulties = ["Easy", "Medium", "Medium", "Hard"]
+    elif original_difficulty == "Medium":
+      possible_difficulties = ["Medium", "Hard", "Hard"]
+    elif original_difficulty == "Hard":
+      possible_difficulties = ["Hard"]
+
+  chosen_difficulty = self.rng.choice(possible_difficulties)
+
   unique_categories_in_this_group = []
   for enemy_location in enemy_group["Enemies"]:
     if enemy_location["Placement category"] not in unique_categories_in_this_group:
       unique_categories_in_this_group.append(enemy_location["Placement category"])
-    
-    # Debugging:
-    #if "TF_02/Room1.arc" in enemy_location["Path"]:
-    #  print([x["Pretty name"] for x in self.enemies_to_randomize_to if is_enemy_allowed_in_placement_category(x, enemy_location["Placement category"])])
   
   # First build a minimum list of enemies to allow in this group to make sure every location in it can have at least one possible enemy there.
   enemy_pool_for_group = []
@@ -266,6 +272,7 @@ def randomize_enemy_group(self, stage_folder, enemy_group, enemy_pool_for_stage)
       enemy_data for enemy_data in enemies_logically_allowed_in_this_group_not_yet_in_pool
       if is_enemy_allowed_in_placement_category(enemy_data, category)
       and enemy_data in enemy_pool_for_stage
+      and enemy_data["Difficulty"] == chosen_difficulty
     ]
     
     for enemy_data in enemies_allowed:
@@ -283,13 +290,6 @@ def randomize_enemy_group(self, stage_folder, enemy_group, enemy_pool_for_stage)
     
     chosen_enemy = self.rng.choice(enemies_allowed)
     enemy_pool_for_group.append(chosen_enemy)
-  
-  # Debugging:
-  #if "sea/Room6.arc" in enemy_group["Enemies"][0]["Path"]:
-  #if "TyuTyu/Room0.arc" in enemy_group["Enemies"][0]["Path"]:
-  #  print([x["Pretty name"] for x in all_enemies_possible_for_this_group])
-  #if "TyuTyu/Room0.arc" in enemy_group["Enemies"][0]["Path"]:
-  #  print([x["Pretty name"] for x in enemies_logically_allowed_in_this_group])
   
   num_species_chosen = len(enemy_pool_for_group)
   if num_species_chosen > MAX_ENEMY_SPECIES_PER_GROUP:
@@ -371,9 +371,6 @@ def randomize_enemy_group(self, stage_folder, enemy_group, enemy_pool_for_stage)
     
     done_enemy_locations_for_room.append((enemy_location, new_enemy_data))
   
-  if DEBUG_PRINT_FREE_MEMORY_ESTIMATES:
-    print("  Leftover free memory: %d" % free_memory)
-  
   return done_enemy_locations_for_room
 
 def save_changed_enemies_and_randomize_their_params(self):
@@ -385,10 +382,6 @@ def save_changed_enemies_and_randomize_their_params(self):
     enemy, arc_name, dzx, layer = get_enemy_instance_by_path(self, path)
     stage_folder, room_arc_name = arc_name.split("/")
     
-    if DEBUG_REMOVE_ALL_ENEMIES and path not in DEBUG_REMOVAL_EXCLUDED_PATHS:
-      dzx.remove_entity(enemy, "ACTR", layer=layer)
-      continue
-    
     if False:
       group_path = "/".join(path.split("/")[0:-1])
       if group_path != last_printed_group_path:
@@ -396,18 +389,15 @@ def save_changed_enemies_and_randomize_their_params(self):
       last_printed_group_path = group_path
       print("Putting a %s (param:%08X) in %s" % (new_enemy_data["Actor name"], new_enemy_data["Params"], path))
     
-    original_enemy_type = get_enemy_data_for_actor(self, enemy)
-    
     spawn_switch_to_check = None
     death_switch_to_set = None
-    path_index_to_follow = None
-    
     if ":" in placement_category:
       category_string, conditions_string = placement_category.split(":", 1)
       conditions = conditions_string.split(",")
       
       if "ChecksConditionSwitch" in conditions:
         # We need to copy the switch ID the original enemy checked before spawning to the randomized enemy.
+        original_enemy_type = get_enemy_data_for_actor(self, enemy)
         spawn_switch_param_name = original_enemy_type["Enable spawn switch param name"]
         
         if spawn_switch_param_name is None:
@@ -420,6 +410,7 @@ def save_changed_enemies_and_randomize_their_params(self):
       
       if "SetsDeathSwitch" in conditions:
         # We need to copy the switch ID the original enemy set on death to the randomized enemy.
+        original_enemy_type = get_enemy_data_for_actor(self, enemy)
         death_switch_param_name = original_enemy_type["Death switch param name"]
         
         if death_switch_param_name is None:
@@ -431,15 +422,6 @@ def save_changed_enemies_and_randomize_their_params(self):
           # 0x80 is invalid for ???
           raise Exception("Switch index to set on enemy death is not valid for all enemy types: %02X" % death_switch_to_set)
     
-    # We attempt to copy the path the original enemy followed to the randomized enemy.
-    path_index_param_name = original_enemy_type["Path param name"]
-    if path_index_param_name is not None:
-      path_index_to_follow = getattr(enemy, path_index_param_name)
-      if path_index_to_follow == 0xFF:
-        path_index_to_follow = None
-      else:
-        assert path_index_to_follow < len(dzx.entries_by_type("RPAT"))
-    
     enemy.name = new_enemy_data["Actor name"]
     enemy.params = new_enemy_data["Params"]
     enemy.x_rot = new_enemy_data["X Rotation"]
@@ -450,14 +432,14 @@ def save_changed_enemies_and_randomize_their_params(self):
       enemy.x_pos = x
       enemy.y_pos = y
       enemy.z_pos = z
-    if "Position offset" in enemy_location:
+    elif "Position offset" in enemy_location:
       x, y, z = enemy_location["Position offset"]
       enemy.x_pos += x
       enemy.y_pos += y
       enemy.z_pos += z
     if "Y Rotation" in enemy_location:
       enemy.y_rot = enemy_location["Y Rotation"]
-    if "Y Rotation offset" in enemy_location:
+    elif "Y Rotation offset" in enemy_location:
       enemy.y_rot += enemy_location["Y Rotation offset"]
       enemy.y_rot &= 0xFFFF
     
@@ -486,18 +468,6 @@ def save_changed_enemies_and_randomize_their_params(self):
           raise Exception("Tried to place an enemy type that cannot set a switch on death in a location that requires a switch be set on death: %s" % enemy.name)
       else:
         setattr(enemy, death_switch_param_name, death_switch_to_set)
-    
-    if path_index_to_follow is not None:
-      path_index_param_name = new_enemy_data["Path param name"]
-      if path_index_param_name is None:
-        # If the new enemy doesn't have a parameter to follow a path it's fine, we don't enforce this.
-        pass
-      else:
-        setattr(enemy, path_index_param_name, path_index_to_follow)
-        
-        if enemy.actor_class_name == "d_a_fm":
-          # Override the Floormaster type to always be the type capable of following a path.
-          enemy.type = 1
     
     enemy.save_changes()
     
@@ -838,7 +808,7 @@ def get_enemy_data_for_actor(self, enemy):
     elif enemy.rat_hole_type == 2:
       return enemy_datas_by_pretty_name["Rat and Bombchu Hole"]
   elif enemy.name == "bbaba":
-    if enemy.leave_behind_baba_bud in [0, 0xFF]:
+    if enemy.boko_bud_type in [0, 0xFF]:
       return enemy_datas_by_pretty_name["Boko Baba"]
     else:
       return enemy_datas_by_pretty_name["Boko Bud Boko Baba"]
@@ -1032,9 +1002,6 @@ def randomize_enemy_params(self, enemy_data, enemy, category, dzx, layer):
   elif enemy.name == "Stal":
     enemy.stalfos_type = self.rng.choice([
       0, # Normal
-      0, # Normal
-      0, # Normal
-      1, # Underground
       1, # Underground
       0xE, # Upper half of body only
     ])
